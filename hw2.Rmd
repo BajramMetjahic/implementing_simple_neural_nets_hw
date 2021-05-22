@@ -1,0 +1,600 @@
+---
+title: "HW2 - Neural Networks"
+author: "Bajram Metjahic"
+date: "10/10/2020"
+output: 
+html_document: 
+highlight: tango
+theme: spacelab
+---
+
+```{r setup, include = FALSE}
+# DO NOT ALTER CODE IN THIS CHUNK
+
+# Note: if you have not yet installed the relevant packages, 
+# you'll need to install them with the code below
+# install.packages("tidyverse")
+# install.packages("neuralnet")
+# install.packages("here")
+
+library(tidyverse)
+library(neuralnet)
+library(here)
+```
+
+* * *
+
+#### Problem 1: 
+
+```{r perceptron-helpers}
+sigmoid <- function(x) {
+  return(1/(1+exp(-x)))
+}
+
+sq_error <- function(y, yhat) {
+  return((y-yhat)^2)
+}
+
+perceptron <- function(data) {
+  
+  # separate the target y values 
+  y <- data %>%
+    select(y) %>%
+    pull()
+  
+  # add a constant 1 to the data to implement the bias neuron
+  x <- data %>%
+    select(-y) %>%
+    mutate(bias = 1)
+  
+  # make the perceptron
+  # note: the number of weights here 
+  list(input = x,
+       output = rep(0, ncol(x)),
+       activation = rep(0, length(y)),
+       y = y,
+       weights = rnorm(ncol(x)))
+}
+```
+
+#### Problem 2:
+
+```{r and-data}
+# and_data tibble with columns x1, x2, and y that corresponds to the four possible input and output combinations for AND
+x1 = c(1,1,0,0)
+x2 = c(1,1,1,0)
+y = c(1,0,0,0)
+and_data <- tibble(x1,x2,y)
+and_data
+# where does bias come in again?
+
+```
+
+```{r perceptron}
+
+# how to isolate a certain row:
+# first_row = and_perceptron$input %>% slice(2)
+# first_row
+# how to isolate a column (1 value within that row):
+# first_row$bias
+
+# how to convert weights into indexible list:
+# a = as.list(and_perceptron$weights)
+
+# how to index into input x1 values:
+  # and_perceptron$input$x1[1]
+
+
+
+# make an instance of perceptron (whole network) for AND example:
+and_perceptron <- perceptron(and_data)
+#and_perceptron$output
+# print(length(and_perceptron$input$x1))
+
+perceptron_feedforward <- function(perceptron, example) {
+
+  # assuming that "example" input is number of the example:
+  curr_row = perceptron$input %>% slice(example)
+  #x1 = curr_row$x1
+  #x2 = curr_row$x2
+  #b = curr_row$bias
+  x1 = perceptron$input$x1[example]
+  x2 = perceptron$input$x2[example]
+  b = perceptron$input$bias[example]
+  
+  # grabbing weights:
+  weight_list = as.list(perceptron$weights)
+  w1 = perceptron$weights[1]
+  w2 = perceptron$weights[2]
+  wb = perceptron$weights[3]
+  # old way getting weights:
+  #wb = weight_list[3]
+  
+  # output is just x1*w1 etc separately from each neuron 
+  # print(typeof(x1))
+  # print(typeof(w1))
+  out_x1 = x1*w1
+  out_x2 = x2*w2
+  out_b = b*wb
+  
+  activation = sigmoid(out_x1 + out_x2 + out_b)
+  activation_1 = sigmoid(out_x1)
+  activation_2 = sigmoid(out_x2)
+  activation_b = sigmoid(out_b)
+  
+  # push new values back into perceptron object:
+    # do they all get same activation?
+  
+  perceptron$output[1] = out_x1
+  perceptron$output[2] = out_x2
+  perceptron$output[3] = out_b
+  
+  # partial activations for each one:
+  perceptron$activation[1] = activation_1
+  perceptron$activation[2] = activation_2
+  perceptron$activation[3] = activation_b
+  
+  # total activation:
+  # how many activations should we be storing here?
+  perceptron$activation[4] = activation
+  
+  return(perceptron)
+}
+
+perceptron_feedback <- function(perceptron, example, alpha) {
+  # Updating the weights
+  
+  # grab input values for current example:
+  x1 = perceptron$input$x1[example]
+  x2 = perceptron$input$x2[example]
+  b = perceptron$input$bias[example]
+  
+  # grab the weights we want to change:
+  w1 = perceptron$weights[1]
+  w2 = perceptron$weights[2]
+  wb = perceptron$weights[3]
+  
+  # grab target value (y):
+  y = perceptron$y[example]
+  
+  # grab actual output:
+  output_x1 = perceptron$output[1]
+  output_x2 = perceptron$output[2]
+  output_b = perceptron$output[3]
+  
+  # change in weight:
+  d_w1 = -alpha*(sigmoid(output_x1)-y)*x1
+  d_w2 = -alpha*(sigmoid(output_x2)-y)*x2
+  d_wb = -alpha*(sigmoid(output_b)-y)*b
+  
+  # print('w1')
+  # print(w1)
+  
+  # update the weights:
+  # print(w1)
+  w1 = w1 + d_w1
+  w2 = w2 + d_w2
+  wb = wb + d_wb
+  # print('after change')
+  # print(w1)
+
+  
+  # push new weights back into perceptron object:
+  perceptron$weights[1] = w1
+  perceptron$weights[2] = w2
+  perceptron$weights[3] = b
+
+  
+  return(perceptron)
+}
+
+train_perceptron <- function(perceptron, n_iterations, alpha = .1) {
+  # outer loop number of epochs
+  # inner loop is 1 to 4 for those four possibilities of 1 and 0
+
+  # length(perceptron$errors should = # iterations):
+  perceptron$errors = rep(0, n_iterations)
+  
+  
+  
+  # iterating through epochs
+  for (i in 1:n_iterations) {
+    # reset epoch and example errors after each epoch:
+    epoch_error = 0
+    example_error = 0
+    for (j in 1:length(perceptron$input$x1)) {
+      perceptron = perceptron_feedforward(perceptron, j)
+      perceptron = perceptron_feedback(perceptron, j, alpha)
+      
+      # calculate error for each example (row) w/in an epoch:
+      example_error = sq_error(perceptron$y[j],perceptron$activation[4])
+      epoch_error = epoch_error + example_error
+    }
+    
+    perceptron$errors[i] = epoch_error/length(perceptron$input$x1)
+      
+    #perceptron$errors[i] = sq_error(perceptron$activation[0], perceptron$y[])
+    # sum of squared error across all (4) examples for this iteration, 
+  }
+  
+  return(perceptron)
+  
+}
+```
+
+```{r and-perceptron}
+and_perceptron = train_perceptron(and_perceptron, 100)
+
+and_perceptron
+```
+
+```{r}
+# For the AND perceptron, the error did go down in the network as it trained, from 0.5637622 in the first epoch to about 0.35. The final weights were -0.02975573, -0.72419079, and 1.00000000 for the first node, second node, and bias node respectively.
+```
+
+#### Problem 3:
+
+```{r or-perceptron}
+x1 = c(1,1,0,0)
+x2 = c(1,0,1,0)
+y = c(1,1,1,0)
+or_data <- tibble(x1,x2,y)
+
+or_perceptron <- perceptron(or_data)
+
+or_perceptron
+
+or_perceptron = train_perceptron(or_perceptron, 100)
+
+or_perceptron
+```
+
+```{r not-x1-perceptron}
+x1 = c(1,1,0,0)
+x2 = c(1,0,1,0)
+y = c(0,0,1,1)
+not_x1_data <- tibble(x1,x2,y)
+
+not_x1_perceptron <- perceptron(not_x1_data)
+
+not_x1_perceptron
+
+not_x1_perceptron = train_perceptron(not_x1_perceptron, 100)
+
+not_x1_perceptron
+```
+
+```{r xor-perceptron}
+xor_data <- tibble()
+
+x1 = c(0,0,1,1)
+x2 = c(0,1,0,1)
+y = c(0,1,1,0)
+xor_data <- tibble(x1,x2,y)
+
+xor_perceptron <- perceptron(xor_data)
+
+xor_perceptron
+
+xor_perceptron = train_perceptron(xor_perceptron, 100)
+
+xor_perceptron
+```
+```{r}
+# for the OR and NOT x1 functions, the perceptron succeeded in learning, but failed for the XOR function. For the OR function, the final weights were 2.853763, 2.836968, and 1.000000, respectively for w1, w2, and bias. For the NOT x1 function, the perceptron's final weights were -2.9687909,  0.0234547, and 1.0000000 for w1, w2, and bias respectively. The error decreased greatly over the course of training for both of these perceptrons, indicating that it was minimizing the error and learning properly. However, for the XOR network, the error did not decrease, and in fact, increased slightly from 0.2474719 to 0.3086798 by the 100th epoch. Its final weights were -0.03059669, -0.01304029, and 1.00000000 for w1, w2, and bias, respectively. 
+```
+
+#### Problem 4:
+
+```{r backprop-helpers}
+sigmoid_derivative <- function(x) {
+  result = sigmoid(x)*(1-sigmoid(x))
+  
+}
+
+backprop_network <- function(data) {
+  
+  # separate the target y values 
+  y <- data %>%
+    select(y) %>%
+    pull()
+  
+  # add a constant 1 to the data to implement the bias neuron
+  x <- data %>%
+    select(-y) %>%
+    mutate(bias = 1)
+  
+  # make the backprop network
+  # you want two layers of weights, and both output and activation for
+  # the hidden and output layer.
+  list(input = x,
+       y = y)
+}
+
+```
+
+```{r backprop-network}
+
+backprop_feedforward <- function(network, example) {
+  
+    len_train = dim(network$X_train)[2]
+    # size input layer (not including bias):
+    s_in = 2
+    # size hidden layer:
+    s_hid = 2
+    # size output layer:
+    s_out = 1
+    
+    # pull weight matrices from network object:
+    W1 = network$weights$W1
+    b1 = network$weights$b1
+    W2 = network$weights$W2
+    b2 = network$weights$b2
+    
+    b1_curr = matrix(rep(b1, len_train), nrow = s_hid)
+    b2_curr = matrix(rep(b2, len_train), nrow = s_out)
+    
+    # matrix multiplication
+      # %*% is mat mult
+    
+    Z1 = W1 %*% network$X_train + b1_curr
+    A1 = sigmoid(Z1)
+    Z2 = W2 %*% A1 + b2_curr
+    A2 = sigmoid(Z2)
+    
+    network$activations = list("Z1" = Z1,"A1" = A1, "Z2" = Z2,"A2" = A2)
+
+  return(network)
+}
+
+backprop_feedback <- function(network, example, alpha) {
+  
+  len_train = dim(network$X_train)[2]
+  
+  # size input layer (not including bias):
+  s_in = 2
+  # size hidden layer:
+  s_hid = 2
+  # size output layer:
+  s_out = 1
+  
+  # second layer (hidden):
+  A2 = network$activation$A2
+  A1 = network$activation$A1
+  W2 = network$weights$W2
+  
+  # calculating change in gradients:
+  
+  dZ2 = A2 - y
+  dW2 = 1/len_train * (dZ2 %*% t(A1)) 
+  db2 = matrix(1/len_train * sum(dZ2), nrow = s_out)
+  db2_curr = matrix(rep(db2, len_train), nrow = s_out)
+  
+  dZ1 = (t(W2) %*% dZ2) * (1 - A1^2)
+  dW1 = 1/len_train * (dZ1 %*% t(network$X_train))
+  db1 = matrix(1/len_train * sum(dZ1), nrow = s_hid)
+  db1_curr = matrix(rep(db1, len_train), nrow = s_hid)
+  
+  grads = list("dW1" = dW1, "db1" = db1,"dW2" = dW2,"db2" = db2)
+  
+  # push gradients into network object:
+  network$grads = grads
+  
+  # update weights locally:
+  W1 = network$weights$W1
+  b1 = network$weights$b1
+  W2 = network$weights$W2
+  b2 = network$weights$b2
+  
+  # actually change weights:
+  W1 = W1 - alpha * dW1
+  b1 = b1 - alpha * db1
+  W2 = W2 - alpha * dW2
+  b2 = b2 - alpha * db2
+  
+  weights = list("W1" = W1,"b1" = b1,"W2" = W2,"b2" = b2)
+  
+  # update weights after change (push to network):
+  network$weights = weights
+  
+  return(network)
+}
+
+
+train_backprop_net <- function(network, n_iterations, alpha = .5) {
+  
+  errors = c()
+  
+  for (i in 1:n_iterations) {
+      network = backprop_feedforward(network, example)
+      
+      # calculating error/cost:
+      len_train = dim(network$X_train)[2]
+      # output of previous forward pass:
+      A2 = network$activation$A2
+      # y should be predicted output
+      error = sq_error(A2, network$y_train)
+      # divide total error by number of examples:
+      cost = -sum(error/len_train)
+      
+      network = backprop_feedback(network, example, alpha)
+      errors = c(errors, cost)
+  }
+  
+  network$errors_list = errors
+  
+  return (network)
+}
+```
+
+```{r backprop-xor}
+# we have two layers - hidden, and input
+
+# preparing data for network:
+
+# create network object :
+myNet = backprop_network(xor_data)
+
+# add weights to network object:
+myNet$weights = rnorm(ncol(myNet$input))
+
+# convert to matrix type (easier for multi-layered networks):
+X_train = as.matrix(myNet$input, byrow=TRUE)
+
+# add y values to X_train:
+X_train = cbind(X_train, myNet$y)
+
+# give a name to y column:
+colnames(X_train)[4] <- "y"
+
+# remove bias from matrix:
+X_train = X_train[,-3]
+
+# separate x and y in training data:
+y_train = X_train[,3]
+
+# remove y values from X_train:
+X_train = X_train[,-3]
+
+# transpose X_train so it can be multiplied by W1:
+X_train = t(X_train)
+y_train = t(y_train)
+
+# push X_train and y_train into the network object:
+myNet$X_train = X_train
+myNet$y_train = y_train
+
+
+# define layer sizes:
+
+s_in = 2
+# size hidden layer:
+s_hid = 2
+# size output layer:
+s_out = 1
+    
+# create weight matrices per layer (and for bias neurons):
+  # W1 is weight matrix for first layer, b1 for first bias neuron, etc
+W1 = matrix(runif(s_hid * s_in), nrow = s_hid, ncol = s_in, byrow = TRUE) 
+b1 = matrix(rep(0, s_hid), nrow = s_hid)
+W2 = matrix(runif(s_out * s_hid), nrow = s_out, ncol = s_hid, byrow = TRUE) 
+b2 = matrix(rep(0, s_out), nrow = s_out)
+
+# load these weight matrices into network object:
+myNet$weights= list("W1" = W1,"b1" = b1, "W2" = W2,"b2" = b2)
+
+# LET'S TRY IT:
+myNet = train_backprop_net(myNet, 1000)
+
+myNet
+```
+
+```{r}
+# The network did appear to correctly learn as the error consistently decreased between epochs.
+```
+
+#### Problem 5:
+
+```{r neuralnet-xor}
+xor_net <- neuralnet(y ~ ., data = xor_data, hidden = 2, linear.output = FALSE)
+plot(xor_net)
+```
+```{r}
+# although the weights are different, it does appear that the neural net package learned the same thing that my network did.
+```
+
+
+#### Problem 6:
+```{r mnist-load}
+mnist_train <- read_csv(here("data/mnist_train.csv"))
+mnist_test <- read_csv(here("data/mnist_test.csv"))
+
+gather_mnist <- function(df) {
+  df_gathered <- df %>%
+    mutate(instance = row_number()) %>%
+    gather(pixel, value, -label, -instance) %>%
+    tidyr::extract(pixel, "pixel", "(\\d+)", convert = TRUE) %>%
+    mutate(pixel = pixel - 1,
+           x = pixel %% 10,
+           y = pixel %/% 10)
+}
+
+gathered_train <- gather_mnist(mnist_train)
+```
+
+```{r show-mnist}
+gathered_train %>%
+  group_by(label) %>%
+  filter(instance == last(instance)) %>%
+  ggplot(aes(x = x, y = y, fill = value)) +
+  facet_wrap(~ label) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "black") +
+  theme_void() +
+  theme(legend.position = "none", strip.text = element_blank())
+```
+
+```{r mnist-prediction}
+mode <- function(codes){
+  which.max(tabulate(codes))
+}
+
+prediction_error <- function(network, data, by_digit = FALSE) {
+  
+  predicted <- predict(network, data) %>%
+    as.tibble() %>%
+    mutate(example = 1:n()) %>%
+    pivot_longer(cols = -example, names_to = "digit") %>%
+    group_by(example) %>%
+    filter(value == max(value)) %>%
+    ungroup() %>%
+    mutate(digit = as.numeric(str_remove(digit, "V")) - 1) %>%
+    select(-value) %>%
+    left_join(data %>% 
+                select(label) %>%
+                mutate(example = 1:n()),
+              by = "example")
+  
+  if(by_digit) {
+    predicted <- predicted %>%
+      group_by(label)
+  }
+  
+  predicted %>%
+    mutate(correct = label == digit) %>%
+    summarise(correct = mean(correct), 
+              most_frequent_digit = mode(digit))
+}
+```
+
+```{r train-mnist}
+
+# decrease size of data so it can converge:
+mnist_small = mnist_train %>% group_by(label) %>% sample_frac(.2)
+
+# make net:
+mnist_net= neuralnet(as.factor(label) ~ ., data = mnist_small, hidden = c(3, 10000), linear.output = FALSE)
+```
+
+```{r}
+# prediction_error = function(network, data, by_digit = FALSE)
+
+# training error:
+mnist_error_train = prediction_error(mnist_net, mnist_train)
+mnist_error_train
+
+# testing error:
+mnist_error_test = prediction_error(mnist_net, mnist_test)
+mnist_error_test
+```
+```{r}
+# I attempted a few different numbers of hidden layers as well as widths. I started with hidden = 2, which gave percent corrects of 17.2 and 15.9 for training and testing data, respectively. For hidden = 10, I got 46 and 37 percent respectively. For hidden = 1000, I got 65.8 and 56.7 percent respectively. Surprisingly, after increasing to 10000 hidden units, I recorded 71 and 66 percent for the training and testing data respectively, a decrease from when I just used 1000 hidden units. I also tried some combinations with multiple hidden layers. When I increased from hidden = c(3,2) to hidden = c(10,2) or hidden = c(3,10), the correctness only increased significantly for both datasets for hidden = c(10,2), and not for hidden = c(3, 10), where it actually went down for both training and testing sets. Additionally, I tried hidden = c(100), and continued to add layers until I reached 4 hidden layers, each of width 100. The percent correct for both training and testing data increased steadily until this fourth layer was added, where the accuracy for both datasets surprisingly shot down to 0.1. I had a similar experience with hidden = c(10000, 2), where the percent correct also shot down to 0.1 for both training and testing data, as well as for hidden = c(3, 10000). It appears that in general, adding either more hidden layers, or widening existing hidden layers does make the model more accurate for this task, however, there are definitely limits to how deep or wide a network can be before its accuracy drops down, either slowly, or dramatically. 
+```
+
+
+```{r print mnist_net}
+mnist_net
+```
+```{r}
+plot(mnist_net)
+```
